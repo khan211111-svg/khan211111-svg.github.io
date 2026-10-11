@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Расписание пар</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  /* Цвета берутся из темы Telegram; запасные — на случай открытия в обычном браузере */
+  :root {
+    --bg: var(--tg-theme-secondary-bg-color, #f1f2f6);
+    --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #ffffff));
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #8a8f98);
+    --accent: var(--tg-theme-button-color, #2f7cf6);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --line: color-mix(in srgb, var(--hint) 22%, transparent);
+    --now: #2fb36b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not(.tg) {
+      --bg: #101114; --card: #1c1d22; --text: #f1f1f3; --hint: #8c919b; --accent: #4c8ff8;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 12px 16px 32px; }
+  .hidden { display: none !important; }
+
+  /* шапка */
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 14px; }
+  .group-btn { display: flex; align-items: center; gap: 6px; font-size: 20px; font-weight: 700; }
+  .group-btn small { font-size: 13px; font-weight: 500; color: var(--accent); }
+  .week-badge { font-size: 13px; font-weight: 600; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent); padding: 5px 10px; border-radius: 99px; white-space: nowrap; }
+
+  /* неделя и дни */
+  .weeknav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .weeknav button.arrow { width: 36px; height: 36px; border-radius: 10px; font-size: 20px; color: var(--accent); }
+  .weeknav .range { font-size: 14px; color: var(--hint); }
+  .days { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 16px; }
+  .day { background: var(--card); border-radius: 12px; padding: 7px 0 8px; text-align: center; position: relative; }
+  .day .dn { font-size: 12px; color: var(--hint); }
+  .day .dd { font-size: 17px; font-weight: 600; }
+  .day.today::after { content: ""; position: absolute; left: 50%; bottom: 4px; width: 5px; height: 5px;
+    margin-left: -2.5px; border-radius: 50%; background: var(--accent); }
+  .day.sel { background: var(--accent); color: var(--accent-text); }
+  .day.sel .dn { color: inherit; opacity: .8; }
+  .day.sel.today::after { background: var(--accent-text); }
+
+  /* пары */
+  .dayhead { font-size: 13px; text-transform: uppercase; letter-spacing: .03em; color: var(--hint); margin: 0 4px 8px; }
+  .lesson { display: grid; grid-template-columns: 58px 1fr; gap: 12px; background: var(--card);
+    border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; border-left: 3px solid transparent; }
+  .lesson .time { font-variant-numeric: tabular-nums; }
+  .lesson .num { font-size: 12px; color: var(--hint); }
+  .lesson .start { font-weight: 600; }
+  .lesson .end { font-size: 13px; color: var(--hint); }
+  .lesson .subj { font-weight: 600; }
+  .lesson .meta { font-size: 13px; color: var(--hint); margin-top: 3px; }
+  .lesson .room { color: var(--text); font-weight: 500; }
+  .lesson.past { opacity: .45; }
+  .lesson.now { border-left-color: var(--now); }
+  .status { display: inline-block; font-size: 12px; font-weight: 600; color: var(--now); margin-top: 6px; }
+  .status.next { color: var(--accent); }
+  .empty { text-align: center; color: var(--hint); padding: 40px 0; font-size: 16px; }
+  .empty b { display: block; font-size: 34px; margin-bottom: 6px; }
+
+  /* выбор группы */
+  .pick h1 { font-size: 22px; margin: 6px 0 4px; }
+  .pick p { color: var(--hint); margin: 0 0 16px; }
+  .courses { display: flex; gap: 8px; margin-bottom: 14px; }
+  .course { flex: 1; background: var(--card); border-radius: 10px; padding: 9px 0; font-weight: 600; }
+  .course.sel { background: var(--accent); color: var(--accent-text); }
+  .glist { background: var(--card); border-radius: 14px; overflow: hidden; }
+  .gitem { display: flex; justify-content: space-between; width: 100%; text-align: left;
+    padding: 13px 16px; border-bottom: 1px solid var(--line); }
+  .gitem:last-child { border-bottom: 0; }
+  .gitem span { color: var(--hint); }
+  .gitem.cur { color: var(--accent); font-weight: 600; }
+
+  .foot { text-align: center; font-size: 12px; color: var(--hint); margin-top: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- экран расписания -->
+  <section id="main" class="hidden">
+    <div class="top">
+      <button class="group-btn" id="groupBtn"><span id="groupName"></span><small>сменить</small></button>
+      <span class="week-badge" id="weekBadge"></span>
+    </div>
+    <div class="weeknav">
+      <button class="arrow" id="prevWeek" aria-label="Прошлая неделя">‹</button>
+      <span class="range" id="range"></span>
+      <button class="arrow" id="nextWeek" aria-label="Следующая неделя">›</button>
+    </div>
+    <div class="days" id="days"></div>
+    <div class="dayhead" id="dayHead"></div>
+    <div id="lessons"></div>
+    <div class="foot">Время — московское</div>
+  </section>
+
+  <!-- экран выбора группы -->
+  <section id="pick" class="pick hidden">
+    <h1>Выберите группу</h1>
+    <p>Выбор запомнится, менять его можно в любой момент.</p>
+    <div class="courses" id="courses"></div>
+    <div class="glist" id="glist"></div>
+  </section>
+
+  <div id="loading" class="empty">Загрузка…</div>
+</div>
+
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg && tg.initData !== undefined && tg.platform !== "unknown") {
+  document.documentElement.classList.add("tg");
+  tg.ready();
+  tg.expand();
+}
+
+const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"];
+const DAYS_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля",
+                "августа", "сентября", "октября", "ноября", "декабря"];
+const KEY = "group";
+const $ = id => document.getElementById(id);
+
+let data, times = {}, refMonday, refWeek;
+let group = null, monday, selIdx, pickCourse;
+
+// ---------- даты (все даты — полночь UTC, чтобы не мешали часовые пояса) ----------
+const DAY_MS = 86400000;
+const mkDate = s => { const [y, m, d] = s.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)); };
+const addDays = (d, n) => new Date(d.getTime() + n * DAY_MS);
+const weekday = d => (d.getUTCDay() + 6) % 7;            // 0 = понедельник
+const mondayOf = d => addDays(d, -weekday(d));
+const ddmm = d => String(d.getUTCDate()).padStart(2, "0") + "." + String(d.getUTCMonth() + 1).padStart(2, "0");
+const same = (a, b) => a.getTime() === b.getTime();
+
+function moscowNow() {
+  const p = {};
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit",
+    day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .formatToParts(new Date()).forEach(x => p[x.type] = x.value);
+  return { date: mkDate(`${p.year}-${p.month}-${p.day}`), time: `${p.hour}:${p.minute}` };
+}
+const toMin = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+
+function weekOf(d) {
+  const shift = Math.round((mondayOf(d) - refMonday) / (7 * DAY_MS));
+  return ((shift % 2) + 2) % 2 === 0 ? refWeek : 3 - refWeek;
+}
+
+function lessonsOf(g, d) {
+  const day = DAYS[weekday(d)], wk = weekOf(d);
+  return data.groups[g].lessons
+    .filter(l => l.day === day && (l.week === "both" || l.week === wk))
+    .sort((a, b) => a.pair - b.pair);
+}
+
+// ---------- хранение выбранной группы (в Telegram — облако, иначе браузер) ----------
+const cloud = tg && tg.CloudStorage && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9") ? tg.CloudStorage : null;
+function loadGroup() {
+  return new Promise(resolve => {
+    let local = null;
+    try { local = localStorage.getItem(KEY); } catch (e) {}
+    if (!cloud) return resolve(local);
+    cloud.getItem(KEY, (err, val) => resolve(!err && val ? val : local));
+  });
+}
+function saveGroup(g) {
+  try { localStorage.setItem(KEY, g); } catch (e) {}
+  if (cloud) cloud.setItem(KEY, g);
+}
+
+// ---------- экран расписания ----------
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function renderMain() {
+  const now = moscowNow();
+  const g = data.groups[group];
+  $("groupName").textContent = g.subgroup || group;
+  $("weekBadge").textContent = weekOf(monday) + "-я неделя";
+  $("range").textContent = `${ddmm(monday)} – ${ddmm(addDays(monday, 5))}`;
+
+  $("days").innerHTML = "";
+  for (let i = 0; i < 6; i++) {
+    const d = addDays(monday, i);
+    const b = document.createElement("button");
+    b.className = "day" + (i === selIdx ? " sel" : "") + (same(d, now.date) ? " today" : "");
+    b.innerHTML = `<div class="dn">${DAYS_SHORT[i]}</div><div class="dd">${d.getUTCDate()}</div>`;
+    b.onclick = () => { selIdx = i; haptic(); renderMain(); };
+    $("days").appendChild(b);
+  }
+
+  const d = addDays(monday, selIdx);
+  const isToday = same(d, now.date);
+  const rel = isToday ? "Сегодня, " : same(d, addDays(now.date, 1)) ? "Завтра, " : "";
+  $("dayHead").textContent = `${rel}${DAYS[weekday(d)].toLowerCase()}, ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+
+  const ls = lessonsOf(group, d);
+  const box = $("lessons");
+  if (!ls.length) {
+    box.innerHTML = `<div class="empty"><b>🎉</b>Пар нет</div>`;
+    return;
+  }
+  const nowMin = toMin(now.time);
+  let nextMarked = false;
+  box.innerHTML = ls.map(l => {
+    const [start, end] = times[l.pair] || ["?", "?"];
+    let subj = l.subject || l.raw, teacher = l.teacher, room = l.room;
+    // если разбор неполный (два преподавателя и т.п.) — показываем исходный текст
+    if (!l.teacher || !l.room || l.raw.length > subj.length + 40) { subj = l.raw; teacher = room = null; }
+    let cls = "", status = "";
+    if (isToday && start !== "?") {
+      if (nowMin >= toMin(end)) cls = "past";
+      else if (nowMin >= toMin(start)) {
+        cls = "now";
+        status = `<span class="status">Идёт сейчас · ещё ${toMin(end) - nowMin} мин</span>`;
+      } else if (!nextMarked) {
+        status = `<span class="status next">Следующая · через ${fmtLeft(toMin(start) - nowMin)}</span>`;
+      }
+      if (cls === "now" || status) nextMarked = true;
+    }
+    const meta = [teacher && esc(teacher), room && `<span class="room">ауд. ${esc(room)}</span>`].filter(Boolean).join(" · ");
+    return `<div class="lesson ${cls}">
+      <div class="time"><div class="num">${l.pair} пара</div><div class="start">${start}</div><div class="end">${end}</div></div>
+      <div><div class="subj">${esc(subj)}</div>${meta ? `<div class="meta">${meta}</div>` : ""}${status}</div>
+    </div>`;
+  }).join("");
+}
+function fmtLeft(m) { return m < 60 ? `${m} мин` : `${Math.floor(m / 60)} ч ${m % 60} мин`; }
+
+function goToday() {
+  const today = moscowNow().date;
+  // в воскресенье сразу показываем понедельник следующей недели
+  const d = weekday(today) === 6 ? addDays(today, 1) : today;
+  monday = mondayOf(d);
+  selIdx = weekday(d);
+}
+
+// ---------- экран выбора группы ----------
+function renderPick() {
+  const courses = [...new Set(Object.values(data.groups).map(g => g.course))].sort();
+  if (!pickCourse) pickCourse = group ? data.groups[group].course : courses[0];
+  $("courses").innerHTML = "";
+  courses.forEach(c => {
+    const b = document.createElement("button");
+    b.className = "course" + (c === pickCourse ? " sel" : "");
+    b.textContent = c + " курс";
+    b.onclick = () => { pickCourse = c; haptic(); renderPick(); };
+    $("courses").appendChild(b);
+  });
+  $("glist").innerHTML = "";
+  Object.entries(data.groups).filter(([, g]) => g.course === pickCourse).forEach(([key, g]) => {
+    const b = document.createElement("button");
+    b.className = "gitem" + (key === group ? " cur" : "");
+    b.innerHTML = `${esc(g.subgroup || key)}<span>${key === group ? "✓" : "›"}</span>`;
+    b.onclick = () => { group = key; saveGroup(key); haptic(); show("main"); };
+    $("glist").appendChild(b);
+  });
+}
+
+function show(screen) {
+  $("loading").classList.add("hidden");
+  $("main").classList.toggle("hidden", screen !== "main");
+  $("pick").classList.toggle("hidden", screen !== "pick");
+  if (screen === "main") renderMain(); else renderPick();
+  if (tg && tg.BackButton) {
+    if (screen === "pick" && group) tg.BackButton.show(); else tg.BackButton.hide();
+  }
+  window.scrollTo(0, 0);
+}
+function haptic() { try { tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged(); } catch (e) {} }
+
+// ---------- запуск ----------
+$("groupBtn").onclick = () => { pickCourse = null; show("pick"); };
+$("prevWeek").onclick = () => { monday = addDays(monday, -7); haptic(); renderMain(); };
+$("nextWeek").onclick = () => { monday = addDays(monday, 7); haptic(); renderMain(); };
+if (tg && tg.BackButton) tg.BackButton.onClick(() => show("main"));
+
+(async () => {
+  try {
+    data = await (await fetch("schedule.json", { cache: "no-cache" })).json();
+  } catch (e) {
+    $("loading").textContent = "Не удалось загрузить расписание. Проверьте интернет и откройте ещё раз.";
+    return;
+  }
+  data.pair_times.forEach(p => times[p.pair] = [p.start, p.end]);
+  refMonday = mondayOf(mkDate(data.weeks.reference.date));
+  refWeek = Number(data.weeks.reference.week);
+  goToday();
+  const saved = await loadGroup();
+  group = saved && data.groups[saved] ? saved : null;
+  show(group ? "main" : "pick");
+  // раз в полминуты обновляем «идёт сейчас»
+  setInterval(() => { if (!$("main").classList.contains("hidden")) renderMain(); }, 30000);
+})();
+</script>
+</body>
+</html>
